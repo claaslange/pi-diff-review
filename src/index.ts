@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import { open, type GlimpseWindow } from "glimpseui";
@@ -111,13 +112,25 @@ export default function (pi: ExtensionAPI) {
     };
   }
 
-  async function reviewRepository(ctx: ExtensionCommandContext): Promise<void> {
+  async function reviewRepository(ctx: ExtensionCommandContext, repositoryPath: string): Promise<void> {
     if (activeWindow != null) {
       ctx.ui.notify("A review window is already open.", "warning");
       return;
     }
 
-    const { repoRoot, files, commits } = await getReviewWindowData(pi, ctx.cwd);
+    const requestedPath = repositoryPath.trim();
+    const reviewCwd = requestedPath.length > 0 ? resolve(ctx.cwd, requestedPath) : ctx.cwd;
+
+    let reviewData: Awaited<ReturnType<typeof getReviewWindowData>>;
+    try {
+      reviewData = await getReviewWindowData(pi, reviewCwd);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      ctx.ui.notify(`Review failed: ${message}`, "error");
+      return;
+    }
+
+    const { repoRoot, files, commits } = reviewData;
     if (files.length === 0) {
       ctx.ui.notify("No reviewable files found.", "info");
       return;
@@ -273,9 +286,9 @@ export default function (pi: ExtensionAPI) {
   }
 
   pi.registerCommand("diff-review", {
-    description: "Open a native review window with git diff, last commit, and all files scopes",
-    handler: async (_args, ctx) => {
-      await reviewRepository(ctx);
+    description: "Open a native review window for the current directory or a repository path",
+    handler: async (args, ctx) => {
+      await reviewRepository(ctx, args);
     },
   });
 
